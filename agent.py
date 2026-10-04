@@ -108,9 +108,35 @@ def _env_set(name: str) -> set[str]:
     }
 
 
+def _resolve_gitlab_endpoint() -> tuple[str, str]:
+    """Return (bare_host, scheme) from GITLAB_API_URL or GITLAB_HOST.
+
+    Accepts a bare host, a host with a scheme, or a full API URL such as
+    ``http://10.10.1.1:8080/api/v4``. ``GLAB_API_PROTOCOL`` overrides the scheme.
+    """
+    scheme = _env("GLAB_API_PROTOCOL").strip().lower()
+
+    api_url = _env("GITLAB_API_URL").strip().rstrip("/")
+    if api_url:
+        for suffix in ("/api/v4", "/api"):
+            if api_url.endswith(suffix):
+                api_url = api_url[: -len(suffix)]
+                break
+        if "://" in api_url:
+            parsed, _, api_url = api_url.partition("://")
+            scheme = scheme or parsed.lower()
+        return api_url.rstrip("/"), (scheme or "https")
+
+    host = _env("GITLAB_HOST", "gitlab.com").strip().rstrip("/")
+    if "://" in host:
+        parsed, _, host = host.partition("://")
+        scheme = scheme or parsed.lower()
+    return host, (scheme or "https")
+
+
 class Config:
     def __init__(self) -> None:
-        self.gitlab_host = _env("GITLAB_HOST", "gitlab.com")
+        self.gitlab_host, self.gitlab_protocol = _resolve_gitlab_endpoint()
         self.gitlab_token = _env("GITLAB_TOKEN") or _env("GITLAB_PAT")
 
         self.poll_interval = _env_int("POLL_INTERVAL", 30)
@@ -267,6 +293,24 @@ def glab_api(
             merged.extend(value)
         return merged
     return values
+
+
+def configure_glab() -> None:
+    """Pin the API/git protocol for the host so plain-HTTP instances work.
+
+    Old glab (e.g. 1.53) does not reliably read the protocol from the
+    environment, so write it to the per-host config (which lands in the global
+    config file when ``-h`` is used).
+    """
+    for key in ("api_protocol", "git_protocol"):
+        proc = _run(
+            ["glab", "config", "set", key, config.gitlab_protocol, "-h", config.gitlab_host]
+        )
+        if proc.returncode != 0:
+            warn(
+                f"glab config set {key} for {config.gitlab_host} failed: "
+                f"{(proc.stderr or proc.stdout).strip()}"
+            )
 
 
 def get_pending_todos() -> list[dict[str, Any]]:
@@ -552,8 +596,7 @@ def classify_request(text: str) -> str:
 
 
 def _repo_web_url(project: str) -> str:
-    scheme = _env("GLAB_API_PROTOCOL", "https")
-    return f"{scheme}://{config.gitlab_host}/{project}.git"
+    return f"{config.gitlab_protocol}://{config.gitlab_host}/{project}.git"
 
 
 def build_prompt(
@@ -638,8 +681,8 @@ def build_prompt(
 
 def _clone_url(project_path: str) -> str:
     """HTTPS clone URL with the PAT as userinfo (no SSH keys needed)."""
-    scheme = _env("GLAB_API_PROTOCOL", "https")
     host = config.gitlab_host
+    scheme = config.gitlab_protocol
     if config.gitlab_token:
         token = quote(config.gitlab_token, safe="")
         return f"{scheme}://oauth2:{token}@{host}/{project_path}.git"
@@ -898,14 +941,21 @@ def interruptible_sleep(seconds: float) -> None:
 def main() -> None:
     global config
 
-    os.environ.setdefault("GITLAB_HOST", config.gitlab_host)
+    # Normalise the host (no scheme) and tell glab which protocol to use. Older
+    # glab (e.g. 1.53) reads API_PROTOCOL/GIT_PROTOCOL; newer also accepts the
+    # GLAB_ names, so set both.
+    os.environ["GITLAB_HOST"] = config.gitlab_host
+    for name in ("API_PROTOCOL", "GLAB_API_PROTOCOL", "GIT_PROTOCOL", "GLAB_GIT_PROTOCOL"):
+        os.environ[name] = config.gitlab_protocol
     if config.gitlab_token:
-        os.environ.setdefault("GITLAB_TOKEN", config.gitlab_token)
+        os.environ["GITLAB_TOKEN"] = config.gitlab_token
     # Never block waiting for an interactive credential prompt.
     os.environ.setdefault("GIT_TERMINAL_PROMPT", "0")
 
+    configure_glab()
+
     log(
-        f"agent-runner starting (host={config.gitlab_host}, "
+        f"agent-runner starting (host={config.gitlab_protocol}://{config.gitlab_host}, "
         f"poll={config.poll_interval}s, claim_wait={config.claim_wait_seconds}s)"
     )
     log(

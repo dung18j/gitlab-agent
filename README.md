@@ -69,8 +69,9 @@ Everything is configured through environment variables (see
 | Variable | Default | Description |
 | --- | --- | --- |
 | `GITLAB_TOKEN` | — | Personal access token with the `api` scope; add `read_repository` to clone (and `write_repository` to push). `GITLAB_PAT` is accepted as an alias. |
-| `GITLAB_HOST` | `gitlab.com` | GitLab hostname, no scheme. |
-| `GLAB_API_PROTOCOL` | `https` | Protocol for API and clone URLs (use `http` for plain-HTTP instances). |
+| `GITLAB_HOST` | `gitlab.com` | GitLab host, optionally with a scheme and port (e.g. `10.10.1.1:8080`). |
+| `GITLAB_API_URL` | — | Full API URL alternative, e.g. `http://10.10.1.1:8080/api/v4`; host and scheme are derived from it. |
+| `GLAB_API_PROTOCOL` | `https` | Protocol for API and clone URLs; derived from the host/URL above when possible. |
 | `POLL_INTERVAL` | `30` | Seconds between polls when idle. |
 | `CLAIM_WAIT_SECONDS` | `5` | Wait after claiming before checking for earlier claims. |
 | `CLAIM_MARKER` | `opencode-agent-claim` | Hidden token in claim notes; claims are scoped per request id. |
@@ -97,6 +98,22 @@ Everything is configured through environment variables (see
 | `MR_BRANCH_PREFIX` | `agent/` | Branch name prefix; the request id is appended. |
 | `MR_TARGET_BRANCH` | *(default branch)* | Target branch for the merge request. |
 | `DRY_RUN` | `false` | Non-mutating: log the claim and prompt without calling GitLab or opencode. |
+
+## Self-hosted GitLab
+
+The host is normalised and the API/git protocol is pinned for it at startup, so
+plain-HTTP instances on a custom port work. Point `GITLAB_HOST` at the bare
+`host:port` (or include the scheme, or set `GITLAB_API_URL`):
+
+```env
+GITLAB_HOST=10.10.1.1:8080
+GLAB_API_PROTOCOL=http
+```
+
+At startup the agent runs `glab config set api_protocol http -h 10.10.1.1:8080`
+(and `git_protocol`), because older glab (1.53) does not reliably read the
+protocol from the environment. Clones then use
+`http://oauth2:<token>@10.10.1.1:8080/<project>.git`.
 
 ## The prompt
 
