@@ -114,7 +114,7 @@ def _resolve_gitlab_endpoint() -> tuple[str, str]:
     Accepts a bare host, a host with a scheme, or a full API URL such as
     ``http://10.10.1.1:8080/api/v4``. ``GLAB_API_PROTOCOL`` overrides the scheme.
     """
-    scheme = _env("GLAB_API_PROTOCOL").strip().lower()
+    scheme = _env("GLAB_API_PROTOCOL").strip().lower() or _env("API_PROTOCOL").strip().lower()
 
     api_url = _env("GITLAB_API_URL").strip().rstrip("/")
     if api_url:
@@ -262,9 +262,10 @@ def glab_api(
 ) -> Any:
     """Call `glab api` and return the decoded response (or None when silent).
 
-    Deliberately avoids ``--output`` so it works with older glab releases.
+    Deliberately avoids ``--hostname`` (its validator rejects ``host:port``) and
+    ``--output`` (older glab) — the host and protocol come from GITLAB_HOST.
     """
-    cmd = ["glab", "api", "--hostname", config.gitlab_host]
+    cmd = ["glab", "api"]
     if method:
         cmd += ["-X", method]
     if paginate:
@@ -941,10 +942,10 @@ def interruptible_sleep(seconds: float) -> None:
 def main() -> None:
     global config
 
-    # Normalise the host (no scheme) and tell glab which protocol to use. Older
-    # glab (e.g. 1.53) reads API_PROTOCOL/GIT_PROTOCOL; newer also accepts the
-    # GLAB_ names, so set both.
-    os.environ["GITLAB_HOST"] = config.gitlab_host
+    # Normalise the host and tell glab which protocol to use. glab derives both
+    # the host and the protocol from a fully-qualified GITLAB_HOST URL (and its
+    # --hostname validator rejects "host:port", so we never pass --hostname).
+    os.environ["GITLAB_HOST"] = f"{config.gitlab_protocol}://{config.gitlab_host}"
     for name in ("API_PROTOCOL", "GLAB_API_PROTOCOL", "GIT_PROTOCOL", "GLAB_GIT_PROTOCOL"):
         os.environ[name] = config.gitlab_protocol
     if config.gitlab_token:

@@ -101,18 +101,17 @@ Everything is configured through environment variables (see
 
 ## Self-hosted GitLab
 
-The host is normalised and the API/git protocol is pinned for it at startup, so
-plain-HTTP instances on a custom port work. Point `GITLAB_HOST` at the bare
-`host:port` (or include the scheme, or set `GITLAB_API_URL`):
+Point `GITLAB_HOST` at the instance. Include the scheme for plain HTTP (or use a
+bare `host:port` plus `GLAB_API_PROTOCOL=http`):
 
 ```env
-GITLAB_HOST=10.10.1.1:8080
-GLAB_API_PROTOCOL=http
+GITLAB_HOST=http://10.10.1.1:8080
 ```
 
-At startup the agent runs `glab config set api_protocol http -h 10.10.1.1:8080`
-(and `git_protocol`), because older glab (1.53) does not reliably read the
-protocol from the environment. Clones then use
+At startup the agent sets `GITLAB_HOST` to a fully-qualified URL and exports
+`API_PROTOCOL`/`GIT_PROTOCOL` (glab 1.53 reads those names; newer glab reads the
+`GLAB_` ones), and pins them with `glab config set`. It never passes
+`--hostname`, whose validator rejects `host:port`. Clones then use
 `http://oauth2:<token>@10.10.1.1:8080/<project>.git`.
 
 ## The prompt
