@@ -904,17 +904,16 @@ def process_todo(todo: dict[str, Any], self_user_id: str | None) -> bool:
     log(f"opencode finished for todo {todo_id} with exit code {returncode}")
 
     if config.post_result:
-        truncated = output[-config.result_max_chars:]
-        note = (
-            f"🤖 {config.agent_name} completed `{action}` on this {type_label} "
-            f"(exit {returncode}).\n\n"
-            "<details><summary>opencode output</summary>\n\n"
-            f"```text\n{truncated}\n```\n\n</details>"
-        )
-        try:
-            post_note(plural, project_id, iid, note)
-        except GlabError as exc:
-            warn(f"could not post result for todo {todo_id}: {exc}")
+        # Post opencode's output as-is: it is markdown and may itself contain
+        # code fences, so wrapping it in one would break the note.
+        note = output[-config.result_max_chars:].strip()
+        if note:
+            try:
+                post_note(plural, project_id, iid, note)
+            except GlabError as exc:
+                warn(f"could not post result for todo {todo_id}: {exc}")
+        else:
+            log(f"nothing to post for todo {todo_id} (empty opencode output)")
 
     mark_todo_done(todo_id)
     return True
