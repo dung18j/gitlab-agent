@@ -904,10 +904,15 @@ def process_todo(todo: dict[str, Any], self_user_id: str | None) -> bool:
     log(f"opencode finished for todo {todo_id} with exit code {returncode}")
 
     if config.post_result:
-        # Post opencode's output as-is: it is markdown and may itself contain
-        # code fences, so wrapping it in one would break the note.
-        note = output[-config.result_max_chars:].strip()
-        if note:
+        # Post opencode's output verbatim inside a collapsible section. It is
+        # markdown and may itself contain code fences, so do not wrap it in one.
+        body = output[-config.result_max_chars:].strip()
+        if body:
+            note = (
+                "<details><summary>opencode output</summary>\n\n"
+                f"{body}\n\n"
+                "</details>"
+            )
             try:
                 post_note(plural, project_id, iid, note)
             except GlabError as exc:
