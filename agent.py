@@ -185,6 +185,9 @@ class Config:
         self.mr_branch_prefix = _env("MR_BRANCH_PREFIX", "agent/")
         self.mr_target_branch = _env("MR_TARGET_BRANCH")
 
+        self.git_author_name = _env("GIT_AUTHOR_NAME", self.agent_name)
+        self.git_author_email = _env("GIT_AUTHOR_EMAIL", f"{self.agent_name}@localhost")
+
         self.dry_run = _env_bool("DRY_RUN", False)
         self.reply_marker = _env("REPLY_MARKER", f"🤖 {self.agent_name}")
         self.extra_prompt = _env("EXTRA_PROMPT")
@@ -294,6 +297,21 @@ def glab_api(
             merged.extend(value)
         return merged
     return values
+
+
+def configure_git() -> None:
+    """Set the commit author/committer identity used by opencode."""
+    for key, value in (
+        ("user.name", config.git_author_name),
+        ("user.email", config.git_author_email),
+    ):
+        proc = _run(["git", "config", "--global", key, value])
+        if proc.returncode != 0:
+            warn(f"git config {key} failed: {(proc.stderr or proc.stdout).strip()}")
+    os.environ["GIT_AUTHOR_NAME"] = config.git_author_name
+    os.environ["GIT_AUTHOR_EMAIL"] = config.git_author_email
+    os.environ["GIT_COMMITTER_NAME"] = config.git_author_name
+    os.environ["GIT_COMMITTER_EMAIL"] = config.git_author_email
 
 
 def configure_glab() -> None:
@@ -958,6 +976,7 @@ def main() -> None:
     os.environ.setdefault("GIT_TERMINAL_PROMPT", "0")
 
     configure_glab()
+    configure_git()
 
     log(
         f"agent-runner starting (host={config.gitlab_protocol}://{config.gitlab_host}, "

@@ -97,6 +97,8 @@ Everything is configured through environment variables (see
 | `CLONE_DIR` | `$WORKDIR/$project_path` | Override the clone directory. |
 | `MR_BRANCH_PREFIX` | `agent/` | Branch name prefix; the request id is appended. |
 | `MR_TARGET_BRANCH` | *(default branch)* | Target branch for the merge request. |
+| `GIT_AUTHOR_NAME` | `<AGENT_NAME>` | Commit author name. |
+| `GIT_AUTHOR_EMAIL` | `<AGENT_NAME>@localhost` | Commit author email. |
 | `DRY_RUN` | `false` | Non-mutating: log the claim and prompt without calling GitLab or opencode. |
 
 ## Self-hosted GitLab
