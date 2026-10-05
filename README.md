@@ -89,7 +89,7 @@ Everything is configured through environment variables (see
 | `ALLOWED_PROJECTS` | *(all)* | Comma-separated project paths or ids to handle. Empty = every project. |
 | `ALLOWED_REQUESTERS` | *(all)* | Comma-separated requester usernames or ids to handle. Empty = every requester. |
 | `POST_RESULT` | `false` | Also post opencode's raw output as a comment (the agent posts its own reply). |
-| `RESULT_MAX_CHARS` | `60000` | Truncate the raw output comment. |
+| `RESULT_MAX_CHARS` | `60000` | Truncate the posted output (`0` = no limit). |
 | `REPLY_MARKER` | `🤖 <AGENT_NAME>` | Marker prefixed to every GitLab note the agent posts. |
 | `EXTRA_PROMPT` | — | Extra instructions appended to the built-in prompt. |
 | `WORKDIR` | `/workspace` | Directory opencode runs in. |

@@ -211,10 +211,13 @@ def load_config() -> Config:
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    cmd: list[str], *, cwd: Path | None = None, input_text: str | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         cwd=cwd,
+        input=input_text,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -260,10 +263,16 @@ def glab_api(
     *,
     method: str | None = None,
     fields: dict[str, str] | None = None,
+    stdin_field: str | None = None,
+    stdin_value: str | None = None,
     paginate: bool = False,
     silent: bool = False,
 ) -> Any:
     """Call `glab api` and return the decoded response (or None when silent).
+
+    A large value (e.g. a note body) can be sent with ``stdin_field``, which
+    passes ``-F <field>=@-`` and feeds ``stdin_value`` on stdin. This avoids the
+    ``Argument list too long`` error from putting big bodies in argv.
 
     Deliberately avoids ``--hostname`` (its validator rejects ``host:port``) and
     ``--output`` (older glab) — the host and protocol come from GITLAB_HOST.
@@ -278,8 +287,10 @@ def glab_api(
     cmd.append(endpoint)
     for key, value in (fields or {}).items():
         cmd += ["-f", f"{key}={value}"]
+    if stdin_field is not None:
+        cmd += ["-F", f"{stdin_field}=@-"]
 
-    proc = _run(cmd)
+    proc = _run(cmd, input_text=stdin_value)
     if proc.returncode != 0:
         raise GlabError(proc.stderr.strip() or f"glab exited with {proc.returncode}")
     if silent:
@@ -340,10 +351,12 @@ def get_pending_todos() -> list[dict[str, Any]]:
 
 
 def post_note(plural: str, project_id: Any, iid: Any, body: str) -> int:
+    # Send the body on stdin so large notes never hit the argv size limit.
     response = glab_api(
         f"projects/{project_id}/{plural}/{iid}/notes",
         method="POST",
-        fields={"body": body},
+        stdin_field="body",
+        stdin_value=body,
     )
     return int(response["id"])
 
@@ -924,7 +937,8 @@ def process_todo(todo: dict[str, Any], self_user_id: str | None) -> bool:
     if config.post_result:
         # Post opencode's output verbatim inside a collapsible section. It is
         # markdown and may itself contain code fences, so do not wrap it in one.
-        body = output[-config.result_max_chars:].strip()
+        limit = config.result_max_chars
+        body = (output if limit <= 0 else output[-limit:]).strip()
         if body:
             note = (
                 "<details><summary>opencode output</summary>\n\n"
