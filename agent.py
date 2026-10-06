@@ -177,7 +177,7 @@ class Config:
         # The agent posts its own progress and final reply on GitLab; set
         # POST_RESULT=true to also have the runner post opencode's raw output.
         self.post_result = _env_bool("POST_RESULT", False)
-        self.result_max_chars = _env_int("RESULT_MAX_CHARS", 60000)
+        self.result_max_chars = _env_int("RESULT_MAX_CHARS", 0)
 
         self.clone_repo = _env_bool("CLONE_REPO", False)
         self.clone_dir = _env("CLONE_DIR")
@@ -759,12 +759,14 @@ def resolve_run_dir(project_path: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def run_opencode(directory: Path, prompt: str) -> tuple[str, int]:
+def run_opencode(directory: Path, prompt: str, title: str = "") -> tuple[str, int]:
     cmd = [config.opencode_bin, "run", "--auto"]
     if config.opencode_model:
         cmd += ["--model", config.opencode_model]
     if config.opencode_agent:
         cmd += ["--agent", config.opencode_agent]
+    if title:
+        cmd += ["--title", title]
     cmd += config.opencode_args
     cmd.append(prompt)
 
@@ -782,6 +784,64 @@ def run_opencode(directory: Path, prompt: str) -> tuple[str, int]:
     log(f"running {' '.join(shlex.quote(part) for part in cmd[:3])} in {directory}")
     proc = _run(cmd, cwd=directory)
     return (proc.stdout + proc.stderr), proc.returncode
+
+
+def _fence_for(text: str) -> str:
+    """A backtick fence longer than any run of backticks in ``text``."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def export_session(directory: Path, title: str) -> str | None:
+    """Export the sanitized JSON transcript of the matching opencode session."""
+    try:
+        listed = _run(
+            [config.opencode_bin, "session", "list", "--format", "json", "-n", "20"],
+            cwd=directory,
+        )
+    except OSError as exc:
+        warn(f"could not list opencode sessions: {exc}")
+        return None
+    if listed.returncode != 0:
+        warn(f"opencode session list failed: {(listed.stderr or listed.stdout).strip()}")
+        return None
+
+    values = _parse_json_values(listed.stdout)
+    sessions = values[0] if values and isinstance(values[0], list) else values
+    if not isinstance(sessions, list) or not sessions:
+        warn("no opencode session found to export")
+        return None
+    chosen = next(
+        (s for s in sessions if isinstance(s, dict) and s.get("title") == title),
+        sessions[0],
+    )
+    session_id = chosen.get("id") if isinstance(chosen, dict) else None
+    if not session_id:
+        warn("opencode session has no id")
+        return None
+
+    # --sanitize redacts secrets from the transcript before we post it.
+    cmd = [config.opencode_bin, "session", "export", str(session_id), "--sanitize"]
+    proc = _run(cmd, cwd=directory)
+    if proc.returncode != 0:
+        warn(f"opencode session export failed: {(proc.stderr or proc.stdout).strip()}")
+        return None
+    return proc.stdout
+
+
+def build_result_note(directory: Path, title: str) -> str:
+    """The note body for POST_RESULT: the sanitized session in a code block."""
+    session = export_session(directory, title)
+    if not session or not session.strip():
+        return ""
+    limit = config.result_max_chars
+    body = (session if limit <= 0 else session[-limit:]).strip()
+    fence = _fence_for(body)
+    return (
+        "<details><summary>opencode session</summary>\n\n"
+        f"{fence}json\n{body}\n{fence}\n\n"
+        "</details>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -930,27 +990,20 @@ def process_todo(todo: dict[str, Any], self_user_id: str | None) -> bool:
     log(f"claim won for todo {todo_id} (note {our_note})")
 
     run_dir = resolve_run_dir(project_path)
+    session_title = f"{config.agent_name}: {title or type_label} (todo {todo_id})"
 
-    output, returncode = run_opencode(run_dir, prompt)
+    output, returncode = run_opencode(run_dir, prompt, session_title)
     log(f"opencode finished for todo {todo_id} with exit code {returncode}")
 
     if config.post_result:
-        # Post opencode's output verbatim inside a collapsible section. It is
-        # markdown and may itself contain code fences, so do not wrap it in one.
-        limit = config.result_max_chars
-        body = (output if limit <= 0 else output[-limit:]).strip()
-        if body:
-            note = (
-                "<details><summary>opencode output</summary>\n\n"
-                f"{body}\n\n"
-                "</details>"
-            )
+        note = build_result_note(run_dir, session_title)
+        if note:
             try:
                 post_note(plural, project_id, iid, note)
             except GlabError as exc:
                 warn(f"could not post result for todo {todo_id}: {exc}")
         else:
-            log(f"nothing to post for todo {todo_id} (empty opencode output)")
+            log(f"no session export to post for todo {todo_id}")
 
     mark_todo_done(todo_id)
     return True
