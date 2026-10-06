@@ -88,7 +88,7 @@ Everything is configured through environment variables (see
 | `TODO_ACTIONS` | *(all)* | Comma-separated `action_name` allow-list, e.g. `mentioned,assigned`. |
 | `ALLOWED_PROJECTS` | *(all)* | Comma-separated project paths or ids to handle. Empty = every project. |
 | `ALLOWED_REQUESTERS` | *(all)* | Comma-separated requester usernames or ids to handle. Empty = every requester. |
-| `POST_RESULT` | `false` | Also post the sanitized opencode session transcript (JSON) as a collapsible comment. |
+| `POST_RESULT` | `false` | Also post the full opencode session transcript (JSON) as a collapsible comment, with common secrets redacted. |
 | `RESULT_MAX_CHARS` | `0` | Truncate the posted transcript (`0` = no limit). |
 | `REPLY_MARKER` | `🤖 <AGENT_NAME>` | Marker prefixed to every GitLab note the agent posts. |
 | `EXTRA_PROMPT` | — | Extra instructions appended to the built-in prompt. |
@@ -136,9 +136,10 @@ explanation, testing, refactoring, and general questions:
 
 opencode posts its own progress updates and final reply with `glab`. Set
 `POST_RESULT=true` to also have the runner export the whole opencode session
-(`opencode session export --sanitize`, JSON) and post it in a collapsible code
-block. It runs each job with a unique `--title` so the right session is
-exported; the transcript is sanitized (no secrets). If the export is
+(`opencode session export`, JSON) and post it in a collapsible code block. It
+runs each job with a unique `--title` so the right session is exported, and
+redacts common secret patterns (`glpat-…`, `oc_sk_…`, `*_TOKEN=…`,
+`Authorization: Bearer …`, private keys, …) before posting. If the export is
 unavailable, nothing extra is posted.
 
 Bodies that reach opencode are untrusted user input. `opencode run --auto`

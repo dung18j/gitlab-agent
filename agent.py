@@ -793,7 +793,7 @@ def _fence_for(text: str) -> str:
 
 
 def export_session(directory: Path, title: str) -> str | None:
-    """Export the sanitized JSON transcript of the matching opencode session."""
+    """Export the JSON transcript of the matching opencode session."""
     try:
         listed = _run(
             [config.opencode_bin, "session", "list", "--format", "json", "-n", "20"],
@@ -820,8 +820,8 @@ def export_session(directory: Path, title: str) -> str | None:
         warn("opencode session has no id")
         return None
 
-    # --sanitize redacts secrets from the transcript before we post it.
-    cmd = [config.opencode_bin, "session", "export", str(session_id), "--sanitize"]
+    # Full transcript; we redact common secret patterns ourselves before posting.
+    cmd = [config.opencode_bin, "session", "export", str(session_id)]
     proc = _run(cmd, cwd=directory)
     if proc.returncode != 0:
         warn(f"opencode session export failed: {(proc.stderr or proc.stdout).strip()}")
@@ -829,13 +829,42 @@ def export_session(directory: Path, title: str) -> str | None:
     return proc.stdout
 
 
+_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(?:glpat|glrt|glsoat|glcbt|glimt|gloas|glagent)-[A-Za-z0-9_\-]{8,}"), "[REDACTED]"),
+    (re.compile(r"\boc_sk_[A-Za-z0-9_\-]{8,}"), "[REDACTED]"),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"), "[REDACTED]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED]"),
+    (
+        re.compile(
+            r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY)[A-Z0-9_]*)"
+            r"(\s*[:=]\s*)\S+"
+        ),
+        r"\1\2[REDACTED]",
+    ),
+    (re.compile(r"(?i)(authorization\s*:\s*(?:bearer|token)\s+)\S+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(private-token\s*:\s*)\S+"), r"\1[REDACTED]"),
+    (
+        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
+        "[REDACTED]",
+    ),
+]
+
+
+def redact_secrets(text: str) -> str:
+    """Best-effort redaction of common secret formats before posting."""
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def build_result_note(directory: Path, title: str) -> str:
-    """The note body for POST_RESULT: the sanitized session in a code block."""
+    """The note body for POST_RESULT: the session transcript in a code block."""
     session = export_session(directory, title)
     if not session or not session.strip():
         return ""
+    body = redact_secrets(session)
     limit = config.result_max_chars
-    body = (session if limit <= 0 else session[-limit:]).strip()
+    body = (body if limit <= 0 else body[-limit:]).strip()
     fence = _fence_for(body)
     return (
         "<details><summary>opencode session</summary>\n\n"
